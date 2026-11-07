@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ecuador · Points of Interest</title>
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.css" rel="stylesheet">
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #map { position: absolute; inset: 0; }
+  .bar { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between;
+         align-items: flex-start; gap: 8px; pointer-events: none; z-index: 2; }
+  .card { background: rgba(255,255,255,.95); border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.2);
+          padding: 8px 12px; pointer-events: auto; }
+  .card h1 { margin: 0; font-size: 16px; line-height: 1.2; }
+  .card small { color: #555; }
+  .lang { display: flex; padding: 4px; gap: 4px; }
+  .lang button { border: 0; background: transparent; padding: 6px 12px; border-radius: 7px; font-weight: 600;
+                 cursor: pointer; color: #333; }
+  .lang button.on { background: #0f766e; color: #fff; }
+  .msg { position: absolute; inset: 0; display: none; place-items: center; background: #fff; z-index: 3;
+         text-align: center; padding: 24px; }
+  .poi-popup .mapboxgl-popup-content { padding: 0; border-radius: 10px; overflow: hidden; width: 300px; }
+  .poi-popup img { display: block; width: 100%; height: 170px; object-fit: cover; background: #e5e7eb; }
+  .poi-body { padding: 12px 14px 14px; max-height: 260px; overflow-y: auto; }
+  .poi-body h2 { margin: 0 0 6px; font-size: 16px; }
+  .chip { display: inline-block; background: #ccfbf1; color: #0f766e; border-radius: 99px; padding: 2px 10px;
+          font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+  .poi-body p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.45; color: #222; }
+  .env { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12.5px; border-top: 1px solid #eee;
+         padding-top: 8px; }
+  .env dt { color: #666; } .env dd { margin: 0; font-weight: 600; }
+  .src { margin-top: 8px; font-size: 11px; color: #888; }
+  .more { display: block; background: none; border: 0; padding: 0; margin: 0 0 10px; color: #0f766e;
+          font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .more:hover { text-decoration: underline; }
+  #panel { position: absolute; top: 64px; right: 12px; bottom: 12px; width: 380px; max-width: calc(100% - 24px);
+           background: #fff; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.3); z-index: 4;
+           overflow-y: auto; transform: translateX(calc(100% + 24px)); transition: transform .25s ease; }
+  #panel.open { transform: none; }
+  #panel img { height: 220px; }
+  #panel .poi-body { max-height: none; overflow: visible; padding: 14px 16px 18px; }
+  #panel .poi-body h2 { font-size: 20px; }
+  #panel .poi-body p { font-size: 14.5px; white-space: pre-line; }
+  #panel-close { position: absolute; top: 8px; right: 8px; z-index: 1; width: 32px; height: 32px; border: 0;
+                 border-radius: 50%; background: rgba(255,255,255,.92); font-size: 20px; line-height: 1;
+                 cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+  @media (max-width: 640px) {
+    #panel { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-width: none; height: 58%;
+             transform: translateY(calc(100% + 16px)); }
+    #panel.open { transform: none; }
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="bar">
+  <div class="card"><h1 id="title"></h1><small id="count"></small></div>
+  <div class="card lang"><button data-l="es">ES</button><button data-l="en">EN</button></div>
+</div>
+<aside id="panel" aria-live="polite"><button id="panel-close" aria-label="Close">×</button><div id="panel-content"></div></aside>
+<div class="msg" id="msg"></div>
+
+<script>
+// ---------- CONFIG ----------
+const MAPBOX_TOKEN = 'YOUR_MAPBOX_PUBLIC_TOKEN';   // public "pk." token, restricted to your site URL
+const CSV_URL = 'data/pois.csv';
+
+// ---------- TEXT (UI strings) ----------
+const T = {
+  es: { title: 'Ecuador · Puntos de interés', places: 'lugares', elevation: 'Elevación', climate: 'Clima',
+        koppen: 'Köppen-Geiger', more: 'Más', source: 'Fuente', err: 'No se pudieron cargar los datos.' },
+  en: { title: 'Ecuador · Points of Interest', places: 'places', elevation: 'Elevation', climate: 'Climate',
+        koppen: 'Köppen-Geiger', more: 'More', source: 'Source', err: 'Could not load the data.' }
+};
+let lang = 'en';
+try { lang = localStorage.getItem('lang') || (navigator.language || 'en').slice(0, 2); } catch (e) {}
+if (!T[lang]) lang = 'en';
+
+// ---------- HELPERS ----------
+const rows = new Map();   // gid -> CSV row
+const decode = s => new DOMParser().parseFromString(s || '', 'text/html').documentElement.textContent;
+const SMALL = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'y', 'e', 'en', 'of', 'the', 'and']);
+const titleCase = s => decode(s).toLowerCase().split(/(\s+)/).map((w, i) =>
+  (i > 0 && SMALL.has(w)) ? w : w.charAt(0).toUpperCase() + w.slice(1)).join('');
+const sentence = s => { s = decode(s).trim(); return s.charAt(0).toUpperCase() + s.slice(1); };
+const pick = (r, es, en) => (lang === 'es' ? (r[es] || r[en]) : (r[en] || r[es])) || '';
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+// ---------- POPUP CONTENT ----------
+function buildPopup(r, full) {
+  const root = el('div');
+  if (r.image_url) {
+    const img = el('img'); img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
+    let triedHttp = false;
+    img.onerror = () => {                       // try the original URL once, then hide the image
+      if (!triedHttp && r.image_url.startsWith('http:')) { triedHttp = true; img.src = r.image_url; }
+      else img.remove();
+    };
+    img.src = r.image_url.replace(/^http:/, 'https:');   // GitHub Pages is https; avoid mixed content
+    root.appendChild(img);
+  }
+  const body = el('div', 'poi-body');
+  body.appendChild(el('h2', '', titleCase(pick(r, 'nombre', 'name'))));
+  const cat = pick(r, 'etv_categoria1', 'etv_category1');
+  if (cat) body.appendChild(el('span', 'chip', sentence(cat)));
+  const short = pick(r, 'descripcion', 'description');
+  const long = pick(r, 'descripcion_full', 'description_full');
+  const desc = (full && long) ? long : short;
+  if (desc) body.appendChild(el('p', '', decode(desc)));
+  if (!full && long && long !== short) {            // "More" opens the side panel with the full text
+    const more = el('button', 'more', T[lang].more + ' →');
+    more.onclick = () => openPanel(r);
+    body.appendChild(more);
+  }
+  const env = el('dl', 'env');
+  const add = (k, v) => { if (v !== '' && v != null) { env.appendChild(el('dt', '', k)); env.appendChild(el('dd', '', v)); } };
+  add(T[lang].elevation, r.elevation ? Number(r.elevation).toLocaleString(lang) + ' m' : '');
+  add(T[lang].climate, pick(r, 'clima_etv_es', 'climate_etv'));
+  add(T[lang].koppen, r.code_kg);
+  body.appendChild(env);
+  if (r.fuente) body.appendChild(el('div', 'src', T[lang].source + ': ' + r.fuente));
+  root.appendChild(body);
+  return root;
+}
+
+// ---------- MAP ----------
+if (MAPBOX_TOKEN.startsWith('YOUR_')) {
+  const m = document.getElementById('msg'); m.style.display = 'grid';
+  m.textContent = 'Add your Mapbox public token in index.html (MAPBOX_TOKEN).';
+  throw new Error('Missing Mapbox token');
+}
+mapboxgl.accessToken = MAPBOX_TOKEN;
+const map = new mapboxgl.Map({
+  container: 'map', style: 'mapbox://styles/mapbox/outdoors-v12', center: [-78.5, -1.4], zoom: 6
+});
+map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'bottom-right');
+
+let popup = null, current = null, panelRow = null;
+function showPopup(r, lngLat) {
+  current = r;
+  if (popup) popup.remove();
+  popup = new mapboxgl.Popup({ className: 'poi-popup', maxWidth: '320px', offset: 10 })
+    .setLngLat(lngLat).setDOMContent(buildPopup(r)).addTo(map);
+  popup.on('close', () => { current = null; });
+}
+
+const panel = document.getElementById('panel'), panelContent = document.getElementById('panel-content');
+function openPanel(r) {
+  panelRow = r;
+  if (popup) popup.remove();
+  panelContent.replaceChildren(buildPopup(r, true));
+  panel.scrollTop = 0;
+  panel.classList.add('open');
+}
+function closePanel() { panelRow = null; panel.classList.remove('open'); }
+document.getElementById('panel-close').onclick = closePanel;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
+
+function setLang(l) {
+  lang = l;
+  try { localStorage.setItem('lang', l); } catch (e) {}
+  document.documentElement.lang = l;
+  document.getElementById('title').textContent = T[l].title;
+  document.getElementById('count').textContent = rows.size ? rows.size.toLocaleString(l) + ' ' + T[l].places : '';
+  document.querySelectorAll('.lang button').forEach(b => b.classList.toggle('on', b.dataset.l === l));
+  if (popup && current) popup.setDOMContent(buildPopup(current));   // refresh open popup in the new language
+  if (panelRow) panelContent.replaceChildren(buildPopup(panelRow, true));
+}
+document.querySelectorAll('.lang button').forEach(b => b.onclick = () => setLang(b.dataset.l));
+setLang(lang);
+
+map.on('load', () => {
+  Papa.parse(CSV_URL, {
+    download: true, header: true, skipEmptyLines: true,
+    error: () => { const m = document.getElementById('msg'); m.style.display = 'grid'; m.textContent = T[lang].err; },
+    complete: res => {
+      const features = [];
+      res.data.forEach(r => {
+        const lon = parseFloat(r.lon), lat = parseFloat(r.lat);
+        if (!isFinite(lon) || !isFinite(lat)) return;
+        rows.set(String(r.gid), r);
+        features.push({ type: 'Feature', properties: { gid: String(r.gid) },
+                        geometry: { type: 'Point', coordinates: [lon, lat] } });
+      });
+      setLang(lang);
+
+      map.addSource('pois', { type: 'geojson', cluster: true, clusterRadius: 45, clusterMaxZoom: 11,
+                              data: { type: 'FeatureCollection', features } });
+      map.addLayer({ id: 'clusters', type: 'circle', source: 'pois', filter: ['has', 'point_count'],
+        paint: { 'circle-color': ['step', ['get', 'point_count'], '#5eead4', 10, '#14b8a6', 50, '#0f766e'],
+                 'circle-radius': ['step', ['get', 'point_count'], 15, 10, 20, 50, 26],
+                 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' } });
+      map.addLayer({ id: 'cluster-count', type: 'symbol', source: 'pois', filter: ['has', 'point_count'],
+        layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12,
+                  'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'] },
+        paint: { 'text-color': '#073b36' } });
+      map.addLayer({ id: 'poi', type: 'circle', source: 'pois', filter: ['!', ['has', 'point_count']],
+        paint: { 'circle-color': '#e11d48', 'circle-radius': 7, 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' } });
+
+      map.on('click', 'clusters', e => {
+        const f = map.queryRenderedFeatures(e.point, { layers: ['clusters'] })[0];
+        map.getSource('pois').getClusterExpansionZoom(f.properties.cluster_id, (err, z) => {
+          if (!err) map.easeTo({ center: f.geometry.coordinates, zoom: z });
+        });
+      });
+      map.on('click', 'poi', e => {
+        const f = e.features[0];
+        showPopup(rows.get(f.properties.gid), f.geometry.coordinates.slice());
+      });
+      ['clusters', 'poi'].forEach(l => {
+        map.on('mouseenter', l, () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', l, () => map.getCanvas().style.cursor = '');
+      });
+
+      if (features.length) {
+        const b = new mapboxgl.LngLatBounds();
+        features.forEach(f => b.extend(f.geometry.coordinates));
+        map.fitBounds(b, { padding: 80, maxZoom: 9, duration: 0 });
+      }
+    }
+  });
+});
+</script>
+</body>
+</html>
