@@ -8,7 +8,7 @@
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
-  html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #map { position: absolute; inset: 0; }
   .bar { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between;
          align-items: flex-start; gap: 8px; pointer-events: none; z-index: 2; }
@@ -23,8 +23,8 @@
   .msg { position: absolute; inset: 0; display: none; place-items: center; background: #fff; z-index: 3;
          text-align: center; padding: 24px; }
   .poi-popup .mapboxgl-popup-content { padding: 0; border-radius: 10px; overflow: hidden; width: 300px; }
-  .poi-popup img { display: block; width: 100%; height: 170px; object-fit: cover; background: #e5e7eb; }
-  .poi-body { padding: 12px 14px 14px; max-height: 260px; overflow-y: auto; }
+  .poi-popup img { display: block; width: 100%; height: min(170px, 22vh); object-fit: cover; background: #e5e7eb; }
+  .poi-body { padding: 12px 14px 14px; max-height: min(260px, 30vh); overflow-y: auto; }
   .poi-body h2 { margin: 0 0 6px; font-size: 16px; }
   .chip { display: inline-block; background: #ccfbf1; color: #0f766e; border-radius: 99px; padding: 2px 10px;
           font-size: 12px; font-weight: 600; margin-bottom: 8px; }
@@ -33,15 +33,37 @@
          padding-top: 8px; }
   .env dt { color: #666; } .env dd { margin: 0; font-weight: 600; }
   .src { margin-top: 8px; font-size: 11px; color: #888; }
+  .sec { margin: 14px 0 4px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #0f766e; }
+  #tools { position: absolute; top: 70px; left: 12px; width: 320px; max-width: calc(100% - 24px); z-index: 3;
+           display: flex; flex-direction: column; gap: 6px; }
+  .search { display: flex; gap: 6px; padding: 6px; }
+  .search input { flex: 1; min-width: 0; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+  #ftoggle { border: 0; border-radius: 8px; background: #0f766e; color: #fff; padding: 0 12px; font-weight: 600;
+             cursor: pointer; white-space: nowrap; }
+  .badge { margin-left: 6px; background: #fff; color: #0f766e; border-radius: 99px; padding: 0 6px; font-size: 12px; }
+  #suggest { padding: 4px; max-height: 300px; overflow-y: auto; }
+  .sg { padding: 7px 10px; border-radius: 6px; cursor: pointer; }
+  .sg:hover { background: #ccfbf1; }
+  .sg b { display: block; font-size: 13.5px; }
+  .sg small { color: #666; }
+  .sg.none { cursor: default; color: #666; font-size: 13px; }
+  .sg.none:hover { background: none; }
+  #fpanel { padding: 10px 12px; max-height: calc(100vh - 210px); overflow-y: auto; }
+  .fld { display: block; margin-bottom: 9px; font-size: 12px; color: #555; }
+  .fld select, .num { width: 100%; box-sizing: border-box; margin-top: 3px; padding: 7px 8px; border: 1px solid #d1d5db;
+                      border-radius: 8px; font-size: 13.5px; background: #fff; }
+  .rng { display: flex; gap: 6px; }
+  .link { background: none; border: 0; color: #0f766e; font-weight: 700; cursor: pointer; padding: 4px 0; font-size: 13px; }
   .more { display: block; background: none; border: 0; padding: 0; margin: 0 0 10px; color: #0f766e;
           font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
   .more:hover { text-decoration: underline; }
   #panel { position: absolute; top: 64px; right: 12px; bottom: 12px; width: 380px; max-width: calc(100% - 24px);
            background: #fff; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.3); z-index: 4;
-           overflow-y: auto; transform: translateX(calc(100% + 24px)); transition: transform .25s ease; }
-  #panel.open { transform: none; }
-  #panel img { height: 220px; }
-  #panel .poi-body { max-height: none; overflow: visible; padding: 14px 16px 18px; }
+           overflow-x: hidden; overflow-y: auto; visibility: hidden; transform: translateX(calc(100% + 24px));
+           transition: transform .25s ease, visibility 0s linear .25s; }
+  #panel.open { visibility: visible; transform: none; transition-delay: 0s; }
+  #panel img { display: block; width: 100%; height: auto; aspect-ratio: 3 / 2; object-fit: cover; background: #e5e7eb; }
+  #panel .poi-body { overflow-wrap: anywhere; max-height: none; overflow: visible; padding: 14px 16px 18px; }
   #panel .poi-body h2 { font-size: 20px; }
   #panel .poi-body p { font-size: 14.5px; white-space: pre-line; }
   #panel-close { position: absolute; top: 8px; right: 8px; z-index: 1; width: 32px; height: 32px; border: 0;
@@ -60,6 +82,14 @@
   <div class="card"><h1 id="title"></h1><small id="count"></small></div>
   <div class="card lang"><button data-l="es">ES</button><button data-l="en">EN</button></div>
 </div>
+<div id="tools">
+  <div class="card search">
+    <input id="q" type="search" autocomplete="off" spellcheck="false">
+    <button id="ftoggle" type="button" aria-expanded="false"><span id="ftxt"></span><span id="fbadge" class="badge" hidden></span></button>
+  </div>
+  <div id="suggest" class="card" hidden></div>
+  <div id="fpanel" class="card" hidden><div id="fbody"></div><button id="freset" type="button" class="link"></button></div>
+</div>
 <aside id="panel" aria-live="polite"><button id="panel-close" aria-label="Close">×</button><div id="panel-content"></div></aside>
 <div class="msg" id="msg"></div>
 
@@ -70,10 +100,22 @@ const CSV_URL = 'data/pois.csv';
 
 // ---------- TEXT (UI strings) ----------
 const T = {
-  es: { title: 'Ecuador · Puntos de interés', places: 'lugares', elevation: 'Elevación', climate: 'Clima',
-        koppen: 'Köppen-Geiger', more: 'Más', source: 'Fuente', err: 'No se pudieron cargar los datos.' },
-  en: { title: 'Ecuador · Points of Interest', places: 'places', elevation: 'Elevation', climate: 'Climate',
-        koppen: 'Köppen-Geiger', more: 'More', source: 'Source', err: 'Could not load the data.' }
+  es: { title: 'Ecuador · Puntos de interés', places: 'lugares', more: 'Más', source: 'Fuente',
+        err: 'No se pudieron cargar los datos.', elevation: 'Elevación', climate: 'Clima', koppen: 'Köppen-Geiger',
+        location: 'Ubicación', province: 'Provincia', canton: 'Cantón', classification: 'Clasificación',
+        category: 'Categoría', mintur: 'Categoría MINTUR', type: 'Tipo', subtype: 'Subtipo',
+        environment: 'Clima y entorno', temperature: 'Temperatura', precipitation: 'Precipitación',
+        mean: 'Media', max: 'Máxima', min: 'Mínima', meanTemp: 'Temp. media', meanPrec: 'Precip. media',
+        warmest: 'Mes más cálido', coolest: 'Mes más frío', wettest: 'Mes más lluvioso', driest: 'Mes más seco',
+        searchPh: 'Buscar lugares, palabras o "frases"…', filters: 'Filtros', reset: 'Restablecer', all: 'Todos', of: 'de', noMatch: 'Sin resultados' },
+  en: { title: 'Ecuador · Points of Interest', places: 'places', more: 'More', source: 'Source',
+        err: 'Could not load the data.', elevation: 'Elevation', climate: 'Climate', koppen: 'Köppen-Geiger',
+        location: 'Location', province: 'Province', canton: 'Canton', classification: 'Classification',
+        category: 'Category', mintur: 'MINTUR category', type: 'Type', subtype: 'Subtype',
+        environment: 'Climate and environment', temperature: 'Temperature', precipitation: 'Precipitation',
+        mean: 'Mean', max: 'Max', min: 'Min', meanTemp: 'Mean temp.', meanPrec: 'Mean precip.',
+        warmest: 'Warmest month', coolest: 'Coolest month', wettest: 'Wettest month', driest: 'Driest month',
+        searchPh: 'Search places, keywords or "phrases"…', filters: 'Filters', reset: 'Reset', all: 'All', of: 'of', noMatch: 'No matches' }
 };
 let lang = 'en';
 try { lang = localStorage.getItem('lang') || (navigator.language || 'en').slice(0, 2); } catch (e) {}
@@ -85,7 +127,11 @@ const decode = s => new DOMParser().parseFromString(s || '', 'text/html').docume
 const SMALL = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'y', 'e', 'en', 'of', 'the', 'and']);
 const titleCase = s => decode(s).toLowerCase().split(/(\s+)/).map((w, i) =>
   (i > 0 && SMALL.has(w)) ? w : w.charAt(0).toUpperCase() + w.slice(1)).join('');
-const sentence = s => { s = decode(s).trim(); return s.charAt(0).toUpperCase() + s.slice(1); };
+const sentence = s => {                       // 'ATRACTIVOS NATURALES' -> 'Atractivos naturales'
+  s = decode(s).trim();
+  if (s === s.toUpperCase()) s = s.toLowerCase();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
 const pick = (r, es, en) => (lang === 'es' ? (r[es] || r[en]) : (r[en] || r[es])) || '';
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -94,8 +140,31 @@ function el(tag, cls, text) {
   return e;
 }
 
-// ---------- POPUP CONTENT ----------
+// ---------- POPUP / PANEL CONTENT ----------
+const val = (v, unit = '', d = 1) => {
+  const n = parseFloat(v);
+  return isFinite(n) ? n.toLocaleString(lang, { maximumFractionDigits: d }) + (unit ? ' ' + unit : '') : '';
+};
+const monthName = v => {
+  const n = parseInt(v, 10);
+  return (n >= 1 && n <= 12) ? sentence(new Intl.DateTimeFormat(lang, { month: 'long' }).format(new Date(2000, n - 1, 1)))
+                             : sentence(v || '');
+};
+const txt = (r, es, en) => { const v = pick(r, es, en); return v ? sentence(v) : ''; };
+function list(pairs) {                       // [[label, value], ...] -> <dl>, skipping empty values
+  const rowsOk = pairs.filter(p => p[1] !== '' && p[1] != null);
+  if (!rowsOk.length) return null;
+  const dl = el('dl', 'env');
+  rowsOk.forEach(([k, v]) => { dl.appendChild(el('dt', '', k)); dl.appendChild(el('dd', '', v)); });
+  return dl;
+}
+function section(body, title, pairs) {
+  const dl = list(pairs);
+  if (dl) { body.appendChild(el('div', 'sec', title)); body.appendChild(dl); }
+}
+
 function buildPopup(r, full) {
+  const t = T[lang];
   const root = el('div');
   if (r.image_url) {
     const img = el('img'); img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
@@ -104,29 +173,47 @@ function buildPopup(r, full) {
       if (!triedHttp && r.image_url.startsWith('http:')) { triedHttp = true; img.src = r.image_url; }
       else img.remove();
     };
-    img.src = r.image_url.replace(/^http:/, 'https:');   // GitHub Pages is https; avoid mixed content
+    img.src = r.image_url.replace(/^http:/, 'https:');
     root.appendChild(img);
   }
   const body = el('div', 'poi-body');
   body.appendChild(el('h2', '', titleCase(pick(r, 'nombre', 'name'))));
-  const cat = pick(r, 'etv_categoria1', 'etv_category1');
-  if (cat) body.appendChild(el('span', 'chip', sentence(cat)));
-  const short = pick(r, 'descripcion', 'description');
+  const cat = txt(r, 'categoria', 'category');
+  if (cat) body.appendChild(el('span', 'chip', cat));
+
+  const short = pick(r, 'descripcion_short', 'description_short');
   const long = pick(r, 'descripcion_full', 'description_full');
-  const desc = (full && long) ? long : short;
+  const desc = (full && long) ? long : (short || long);
   if (desc) body.appendChild(el('p', '', decode(desc)));
-  if (!full && long && long !== short) {            // "More" opens the side panel with the full text
-    const more = el('button', 'more', T[lang].more + ' →');
+  if (!full && long && long !== short) {        // "More" opens the side panel with the full text
+    const more = el('button', 'more', t.more + ' \u2192');
     more.onclick = () => openPanel(r);
     body.appendChild(more);
   }
-  const env = el('dl', 'env');
-  const add = (k, v) => { if (v !== '' && v != null) { env.appendChild(el('dt', '', k)); env.appendChild(el('dd', '', v)); } };
-  add(T[lang].elevation, r.elevation ? Number(r.elevation).toLocaleString(lang) + ' m' : '');
-  add(T[lang].climate, pick(r, 'clima_etv_es', 'climate_etv'));
-  add(T[lang].koppen, r.code_kg);
-  body.appendChild(env);
-  if (r.fuente) body.appendChild(el('div', 'src', T[lang].source + ': ' + r.fuente));
+
+  const alt = val(r.altitude || r.altitud, 'm', 0);
+  const place = [txt(r, 'provincia', 'province'), txt(r, 'canton', 'canton')].filter(Boolean).join(', ');
+  const clim = txt(r, 'clima', 'climate');
+
+  if (!full) {                                   // compact pop-up
+    const dl = list([[t.elevation, alt], [t.meanTemp, val(r.mean_temp, '\u00b0C')],
+                     [t.meanPrec, val(r.mean_prec, 'mm', 0)], [t.location, place]]);
+    if (dl) body.appendChild(dl);
+  } else {                                       // side panel: everything
+    section(body, t.location, [[t.province, txt(r, 'provincia', 'province')], [t.canton, txt(r, 'canton', 'canton')]]);
+    section(body, t.classification, [[t.category, cat], [t.mintur, txt(r, 'categoria_mintur', 'category_mintur')],
+                                     [t.type, txt(r, 'tipo', 'type')], [t.subtype, txt(r, 'subtipo', 'subtype')]]);
+    section(body, t.environment, [[t.elevation, alt], [t.climate, clim], [t.koppen, r.code_kg || '']]);
+    section(body, t.temperature, [[t.mean, val(r.mean_temp, '\u00b0C')], [t.max, val(r.max_temp, '\u00b0C')],
+                                  [t.min, val(r.min_temp, '\u00b0C')],
+                                  [t.warmest, r.maxmth_temp ? monthName(r.maxmth_temp) : ''],
+                                  [t.coolest, r.minmth_temp ? monthName(r.minmth_temp) : '']]);
+    section(body, t.precipitation, [[t.mean, val(r.mean_prec, 'mm', 0)], [t.max, val(r.max_prec, 'mm', 0)],
+                                    [t.min, val(r.min_prec, 'mm', 0)],
+                                    [t.wettest, r.maxmth_prec ? monthName(r.maxmth_prec) : ''],
+                                    [t.driest, r.minmth_prec ? monthName(r.minmth_prec) : '']]);
+  }
+  if (r.fuente || r.source) body.appendChild(el('div', 'src', t.source + ': ' + pick(r, 'fuente', 'source')));
   root.appendChild(body);
   return root;
 }
@@ -142,14 +229,197 @@ const map = new mapboxgl.Map({
   container: 'map', style: 'mapbox://styles/mapbox/outdoors-v12', center: [-78.5, -1.4], zoom: 6
 });
 map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'bottom-right');
+new ResizeObserver(() => map.resize()).observe(document.getElementById('map'));   // keep the canvas filling its container
 
-let popup = null, current = null, panelRow = null;
+let popup = null, current = null, panelRow = null, refreshUI = null;
 function showPopup(r, lngLat) {
-  current = r;
   if (popup) popup.remove();
   popup = new mapboxgl.Popup({ className: 'poi-popup', maxWidth: '320px', offset: 10 })
     .setLngLat(lngLat).setDOMContent(buildPopup(r)).addTo(map);
+  current = r;                                   // set after remove(), which clears it via the close event
   popup.on('close', () => { current = null; });
+  const h = map.getContainer().clientHeight;     // put the point low on screen so the pop-up above it fits
+  map.easeTo({ center: lngLat, offset: [0, Math.round(h * 0.18)], duration: 400 });
+}
+
+// ---------- SEARCH & FILTERS ----------
+const norm = s => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const $ = id => document.getElementById(id);
+const TEXT_FIELDS = ['nombre', 'name', 'descripcion_short', 'description_short', 'descripcion_full', 'description_full',
+  'categoria', 'category', 'categoria_mintur', 'category_mintur', 'tipo', 'type', 'subtipo', 'subtype',
+  'provincia', 'province', 'canton', 'clima', 'climate'];
+// Numeric filters: add or remove entries here (key = CSV column; label = key in T)
+const NUM_FILTERS = [
+  { key: 'altitude', alt: 'altitud', label: 'elevation', unit: 'm' },
+  { key: 'mean_temp', label: 'meanTemp', unit: '\u00b0C' },
+  { key: 'mean_prec', label: 'meanPrec', unit: 'mm' }
+];
+// Dropdown filters; 'parent' makes them cascade (category -> type -> subtype). Values are keyed on the Spanish column.
+const SELECTS = [
+  { id: 'f-cat', es: 'categoria', en: 'category', label: 'category' },
+  { id: 'f-type', es: 'tipo', en: 'type', label: 'type', parent: 'f-cat' },
+  { id: 'f-sub', es: 'subtipo', en: 'subtype', label: 'subtype', parent: 'f-type' },
+  { id: 'f-prov', es: 'provincia', en: 'province', label: 'province' }
+];
+const SEL = Object.fromEntries(SELECTS.map(f => [f.id, f]));
+const F = { q: '', sel: {}, num: {} };
+let matched = [], lastCount = 0, tm = null;
+const featByKey = new Map();
+
+function parseQuery(q) {                       // words are ANDed; "quoted text" is an exact phrase
+  const out = [], re = /"([^"]+)"|(\S+)/g; let m;
+  while ((m = re.exec(q))) out.push(norm((m[1] || m[2]).replace(/"/g, '')));
+  return out.filter(Boolean);
+}
+function matches(r, terms) {
+  for (const t of terms) if (!r._hay.includes(t)) return false;
+  for (const f of SELECTS) { const v = F.sel[f.id]; if (v && (r[f.es] || '').trim() !== v) return false; }
+  for (const n of NUM_FILTERS) {
+    const [lo, hi] = F.num[n.key] || [null, null], x = r._num[n.key];
+    if (lo != null && !(x >= lo)) return false;
+    if (hi != null && !(x <= hi)) return false;
+  }
+  return true;
+}
+function ancestorsOk(r, f) {
+  for (let p = f.parent; p; p = SEL[p].parent) { const v = F.sel[p]; if (v && (r[SEL[p].es] || '').trim() !== v) return false; }
+  return true;
+}
+function clearChildren(id) { SELECTS.forEach(x => { if (x.parent === id) { F.sel[x.id] = ''; clearChildren(x.id); } }); }
+
+function buildSelects() {
+  SELECTS.forEach(f => {
+    const sel = $(f.id), counts = new Map(), labels = new Map();
+    for (const r of rows.values()) {
+      if (!ancestorsOk(r, f)) continue;
+      const k = (r[f.es] || '').trim(); if (!k) continue;
+      counts.set(k, (counts.get(k) || 0) + 1);
+      labels.set(k, lang === 'es' ? k : ((r[f.en] || '').trim() || k));
+    }
+    const cur = counts.has(F.sel[f.id]) ? F.sel[f.id] : '';
+    F.sel[f.id] = cur;
+    sel.replaceChildren();
+    const all = el('option', '', T[lang].all); all.value = ''; sel.appendChild(all);
+    [...counts.keys()].sort((a, b) => labels.get(a).localeCompare(labels.get(b), lang)).forEach(k => {
+      const o = el('option', '', sentence(labels.get(k)) + ' (' + counts.get(k) + ')'); o.value = k; sel.appendChild(o);
+    });
+    sel.value = cur;
+  });
+}
+function activeCount() {
+  return SELECTS.filter(f => F.sel[f.id]).length + NUM_FILTERS.filter(n => (F.num[n.key] || []).some(v => v != null)).length;
+}
+function updateCount() {
+  const total = rows.size, t = T[lang];
+  $('count').textContent = total ? (lastCount < total ? lastCount.toLocaleString(lang) + ' ' + t.of + ' ' : '') +
+    total.toLocaleString(lang) + ' ' + t.places : '';
+  const n = activeCount(); $('fbadge').hidden = !n; $('fbadge').textContent = n;
+}
+function renderSuggest() {
+  const box = $('suggest'), terms = parseQuery(F.q);
+  if (!terms.length || document.activeElement !== $('q')) { box.hidden = true; return; }
+  const q0 = terms.join(' ');
+  const items = matched.map(([k, r]) => [r._name.startsWith(q0) ? 0 : r._name.includes(q0) ? 1 : 2, r])
+                       .sort((a, b) => a[0] - b[0]).slice(0, 8).map(x => x[1]);
+  box.replaceChildren();
+  if (!items.length) box.appendChild(el('div', 'sg none', T[lang].noMatch));
+  items.forEach(r => {
+    const d = el('div', 'sg'); d.appendChild(el('b', '', titleCase(pick(r, 'nombre', 'name'))));
+    d.appendChild(el('small', '', [txt(r, 'categoria', 'category'), txt(r, 'provincia', 'province')].filter(Boolean).join(' \u00b7 ')));
+    d.onmousedown = e => { e.preventDefault(); selectRow(r); };
+    box.appendChild(d);
+  });
+  box.hidden = false;
+}
+function selectRow(r) {
+  const c = [parseFloat(r.lon), parseFloat(r.lat)];
+  $('suggest').hidden = true; $('q').blur();
+  map.once('moveend', () => showPopup(r, c));
+  map.flyTo({ center: c, zoom: Math.max(map.getZoom(), 12), duration: 1200 });
+}
+function fitResults() {
+  if (!matched.length) return;
+  const b = new mapboxgl.LngLatBounds();
+  matched.forEach(([k]) => b.extend(featByKey.get(k).geometry.coordinates));
+  const left = window.innerWidth > 640 ? 360 : 40;
+  map.fitBounds(b, { padding: { top: 90, bottom: 60, left, right: 60 }, maxZoom: 10, duration: 700 });
+}
+function apply(fit) {
+  const terms = parseQuery(F.q);
+  matched = [...rows.entries()].filter(([k, r]) => matches(r, terms));
+  lastCount = matched.length;
+  const src = map.getSource('pois');
+  if (src) src.setData({ type: 'FeatureCollection', features: matched.map(([k]) => featByKey.get(k)) });
+  updateCount(); renderSuggest();
+  if (fit) fitResults();
+}
+const schedule = () => { clearTimeout(tm); tm = setTimeout(() => apply(true), 300); };
+
+function buildFilterPanel(ranges) {
+  const body = $('fbody');
+  SELECTS.forEach(f => {
+    const w = el('label', 'fld'), s = el('span'), sel = el('select'); s.dataset.t = f.label; sel.id = f.id;
+    w.appendChild(s); w.appendChild(sel); body.appendChild(w);
+    sel.onchange = () => { F.sel[f.id] = sel.value; clearChildren(f.id); buildSelects(); apply(true); };
+  });
+  NUM_FILTERS.forEach(n => {
+    const w = el('div', 'fld'), s = el('span'), rng = el('div', 'rng'), g = ranges[n.key] || [];
+    s.dataset.t = n.label; s.dataset.u = n.unit; w.appendChild(s);
+    [0, 1].forEach(i => {
+      const inp = el('input', 'num'); inp.type = 'number'; inp.step = 'any';
+      inp.placeholder = isFinite(g[i]) ? String(Math.round(g[i] * 10) / 10) : '';
+      inp.oninput = () => {
+        const v = parseFloat(inp.value); (F.num[n.key] = F.num[n.key] || [null, null])[i] = isFinite(v) ? v : null; schedule();
+      };
+      rng.appendChild(inp);
+    });
+    w.appendChild(rng); body.appendChild(w);
+  });
+}
+function initSearch(features) {
+  features.forEach(f => featByKey.set(f.properties.gid, f));
+  const ranges = {};
+  for (const r of rows.values()) {
+    r._hay = norm(TEXT_FIELDS.map(k => decode(r[k])).join(' | '));
+    r._name = norm((r.nombre || '') + ' ' + (r.name || ''));
+    r._num = {};
+    NUM_FILTERS.forEach(n => {
+      const x = parseFloat(r[n.key] || (n.alt && r[n.alt]));
+      r._num[n.key] = x;
+      if (isFinite(x)) { const g = ranges[n.key] || (ranges[n.key] = [x, x]); g[0] = Math.min(g[0], x); g[1] = Math.max(g[1], x); }
+    });
+  }
+  buildFilterPanel(ranges);
+  matched = [...rows.entries()]; lastCount = matched.length;
+
+  const q = $('q');
+  q.addEventListener('input', () => { F.q = q.value; renderSuggest(); schedule(); });
+  q.addEventListener('focus', renderSuggest);
+  q.addEventListener('blur', () => { $('suggest').hidden = true; });
+  q.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && matched.length && parseQuery(F.q).length) {
+      clearTimeout(tm); apply(false);
+      const first = matched.map(([k, r]) => r).sort((a, b) =>
+        (a._name.startsWith(parseQuery(F.q).join(' ')) ? 0 : 1) - (b._name.startsWith(parseQuery(F.q).join(' ')) ? 0 : 1))[0];
+      selectRow(first);
+    } else if (e.key === 'Escape') { q.blur(); }
+  });
+  $('ftoggle').onclick = () => {
+    const open = $('fpanel').hidden; $('fpanel').hidden = !open; $('ftoggle').setAttribute('aria-expanded', String(open));
+  };
+  $('freset').onclick = () => {
+    F.q = ''; q.value = ''; F.sel = {}; F.num = {};
+    document.querySelectorAll('#fbody .num').forEach(i => { i.value = ''; });
+    buildSelects(); apply(true);
+  };
+  refreshUI = () => {
+    q.placeholder = T[lang].searchPh; $('ftxt').textContent = T[lang].filters; $('freset').textContent = T[lang].reset;
+    document.querySelectorAll('#fbody [data-t]').forEach(e => {
+      e.textContent = T[lang][e.dataset.t] + (e.dataset.u ? ' (' + e.dataset.u + ')' : '');
+    });
+    buildSelects(); updateCount(); renderSuggest();
+  };
+  refreshUI();
 }
 
 const panel = document.getElementById('panel'), panelContent = document.getElementById('panel-content');
@@ -171,6 +441,7 @@ function setLang(l) {
   document.getElementById('title').textContent = T[l].title;
   document.getElementById('count').textContent = rows.size ? rows.size.toLocaleString(l) + ' ' + T[l].places : '';
   document.querySelectorAll('.lang button').forEach(b => b.classList.toggle('on', b.dataset.l === l));
+  if (refreshUI) refreshUI();
   if (popup && current) popup.setDOMContent(buildPopup(current));   // refresh open popup in the new language
   if (panelRow) panelContent.replaceChildren(buildPopup(panelRow, true));
 }
@@ -183,14 +454,16 @@ map.on('load', () => {
     error: () => { const m = document.getElementById('msg'); m.style.display = 'grid'; m.textContent = T[lang].err; },
     complete: res => {
       const features = [];
-      res.data.forEach(r => {
+      res.data.forEach((r, i) => {
         const lon = parseFloat(r.lon), lat = parseFloat(r.lat);
         if (!isFinite(lon) || !isFinite(lat)) return;
-        rows.set(String(r.gid), r);
-        features.push({ type: 'Feature', properties: { gid: String(r.gid) },
+        const key = (r.gid || '').trim() || 'row' + i;
+        rows.set(key, r);
+        features.push({ type: 'Feature', properties: { gid: key },
                         geometry: { type: 'Point', coordinates: [lon, lat] } });
       });
       setLang(lang);
+      initSearch(features);
 
       map.addSource('pois', { type: 'geojson', cluster: true, clusterRadius: 45, clusterMaxZoom: 11,
                               data: { type: 'FeatureCollection', features } });
