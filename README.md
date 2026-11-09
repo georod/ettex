@@ -1,6 +1,6 @@
 # ettex
 
-The Ecuador Travel and Tourism Explorer (ETTEX) is a bilingual (Spanish/English) interactive web map displaying 200+ points of interest. The aim of this web map is to help travellers find tourism attractions in Ecuador.
+The Ecuador Travel and Tourism Explorer (ettex) is a bilingual (Spanish/English) interactive web map displaying 200+ points of interest. The aim of this web map is to help travellers find tourism attractions in Ecuador. Live app is found here: [georod.com/ettex] (https://georod.com/ettex/)
 
 The web map is built with HTML, CSS and JavaScript. It uses Mapbox GL JS for the map and clustering, and Papa Parse to read the CSV in the browser. Pop-ups and a detail panel show photos, descriptions, and climate variables. Visitors can search keywords or phrases and filter by categories, province, and numeric variables. Images are served and resized by Cloudinary, and the static site is hosted on GitHub Pages. No backend or database is needed.
 
